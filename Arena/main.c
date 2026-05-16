@@ -1,237 +1,157 @@
 #include <stdio.h>
 #include <stdint.h>
 #include <stdlib.h>
-#include <string.h>
-#include "colors.h"
 
-//#define SIZE 30               // stack info - might not use
-#define true 1                  // define bool values
-#define false 0
-typedef char bool;
+// =============================================================================
+// ARENA ALLOCATOR — based on bytesbeneath.com/p/the-arena-custom-memory-allocators
+//
+// Core idea: pre-allocate one big block of memory, then hand out slices of it
+// by bumping an offset forward. Freeing is O(1) — just reset the offset to 0.
+//
+// Benefits over malloc/free:
+//   - No fragmentation: allocations are contiguous in memory (cache friendly)
+//   - Predictable performance: no hidden bookkeeping per allocation
+//   - Simple lifetime model: free everything at once when the arena is done
+// =============================================================================
 
-#define SIZE 26
 
-typedef struct TrieNode TrieNode;   // advanced definition
-// Arena for our dawg array - only manage one malloc
-typedef struct{
-    uint8_t* data;
-    size_t size;
-    size_t offset;
+// -----------------------------------------------------------------------------
+// Allocator interface
+//
+// Wrapping the arena behind a generic Allocator lets functions accept *any*
+// backing allocator (arena, pool, malloc) without being coupled to one.
+// The `context` void pointer carries the allocator's internal state.
+// -----------------------------------------------------------------------------
+typedef struct {
+    void *(*alloc)(size_t size, void *context);
+    void  (*free) (size_t size, void *ptr, void *context);
+    void  *context;
+} Allocator;
+
+// make(T, n, a)  — allocate n items of type T using allocator a
+// release(s,p,a) — free a previous allocation (no-op for arenas)
+#define make(T, n, a)    ((T *)((a).alloc(sizeof(T) * (n), (a).context)))
+#define release(s, p, a) ((a).free((s), (p), (a).context))
+
+
+// -----------------------------------------------------------------------------
+// Arena
+//
+//   base      — pointer to the start of the backing buffer
+//   size      — total capacity in bytes
+//   offset    — how many bytes have been handed out (bump pointer)
+//   committed — running total of bytes requested (for diagnostics)
+// -----------------------------------------------------------------------------
+#define DEFAULT_ALIGNMENT (2 * sizeof(void *))  // 16 bytes on 64-bit, safe for all C types
+
+typedef struct {
+    void   *base;
+    size_t  size;
+    size_t  offset;
+    size_t  committed;
 } Arena;
 
-struct TrieNode{
-    unsigned int numNode;           // for our use only
-    char letter;                    // char character - again for printing the dawg
-    TrieNode* children[SIZE];       // array for all available letters
-    bool isEndOfWord;               //is a valid word
-};
 
-char* loadFile();
-bool validateBuffer(char* buffer);
-Arena createArena(size_t size);
-void* arenaAlloc(Arena* arena, size_t size);
-void freeArena(Arena arena);
-TrieNode* createNode(Arena *arena);
-void insert(Arena* arena, TrieNode *root, const char *key);
-void printDawg(TrieNode *root);
-void listDawg(TrieNode *root, char *buffer, int wordIndex);
+// -----------------------------------------------------------------------------
+// Alignment helpers
+//
+// CPUs require certain types to live at addresses that are multiples of their
+// size (e.g. a uint64_t at an 8-byte boundary). Misaligned access is either
+// a bus error (ARM strict mode) or a silent slowdown.
+//
+// align_forward rounds `ptr` up to the next multiple of `alignment`.
+// It uses a bitmask trick that only works when alignment is a power of two:
+//   modulo = ptr & (alignment - 1)    ← low bits that need clearing
+//   if non-zero, add the gap to reach the next boundary
+// -----------------------------------------------------------------------------
+#define is_power_of_two(x) ((x) != 0 && (((x) & ((x) - 1)) == 0))
 
-
-
-//bool search(struct TrieNode *root, const char *key);
-//bool isempty(struct TrieNode *root) ;
-//struct TrieNode* deleteHelper(struct TrieNode *root, const char *key, int depth);
-//void deletekey(struct TrieNode *root, const char *key);
-
-
-//void printNodes(struct TrieNode *root);
-//void push(struct TrieNode *ptr);
-//struct TrieNode* pop();
-//void pop();
-//void show();
-
-int numWords=0,numNodes = 0;        // number of allocated nodes and words
-//char *wordArray[40];                // array to hold words
-//int wordIndex=0;                    // index position in wordarray
-
-int main(void) {
-
-    char *buffer = loadFile();
-    if (buffer == NULL) {
-        printf("Error Loading file.../n");
-        return 1;
-    }
-
-    if (validateBuffer(buffer)==false) {
-        printf("Error Validating file.../n");
-        return 1;
-    }
-
-    // Create Arena
-    Arena arena = createArena(sizeof(struct TrieNode)*300);
-    //printf("Size of Arena: %ld\n",arena.size);
-
-    // Create root node
-    TrieNode *root = createNode(&arena);
-
-    // Returns first line
-    char* line = strtok(buffer, "\n");
-    // Keep printing tokens while one of the
-    // delimiters present in str[].
-    while (line != NULL) {
-        numWords++;
-        printf("%s\n", line);
-        insert(&arena,root, line);
-
-        line = strtok(NULL, "\n");
-    }
-
-    printDawg(root);
-    printf("\n");
-
-
-    int wordIndex=0;
-    char wordBuffer[40];
-    listDawg(root,wordBuffer,wordIndex);
-
-
-
-    red();
-    printf("Hello, World!  char=%c\n",root->letter);
-    reset();
-
-    freeArena(arena);
-    free(buffer);
-    return 0;
-}
-
-char* loadFile() {
-    //FILE *file = fopen("scrabble_words.txt", "rb");  // open file in binary mode
-    FILE *file = fopen("test.txt", "rb");  // open file in binary mode
-
-
-    if (file == NULL) {
-        perror("file open error");
-        return NULL;
-    }
-
-    fseek(file, 0, SEEK_END);
-    const long file_size = ftell(file);
-    fseek(file, 0, SEEK_SET);
-
-    char *buffer = (char *)malloc(file_size + 1);
-
-    if (buffer == NULL) {
-        perror("malloc error");
-        fclose(file);
-        return NULL;
-    }
-
-    const size_t bytes_read = fread(buffer, sizeof(char), file_size, file);
-    if (bytes_read != file_size) {
-        perror("fread error - bytes read");
-        fclose(file);
-        return NULL;
-    }
-    fclose(file);
-    buffer[file_size] = '\0'; // null terminate array
-    //printf("filesize=%ld\n",file_size);
-    return buffer;
-}
-
-bool validateBuffer(char* buffer) {
-    long index = 0;
-    char *c = buffer;
-    while (*c++) index++;           // ugly but  compact - scan buffer and find 0 return index
-
-    bool flag = true;
-    for (int i=0;i<index;i++) {                 // scan all chars in buffer
-        char ch = buffer[i];
-        if (ch=='\n') continue;                 // ignore eol
-        if((ch >= 'a' && ch <= 'z' )) continue; // ignore lowercase
-        flag = false;                           // undefined char found
-    }
-    return flag;
-}
-
-Arena createArena(size_t size) {
-    Arena arena;
-    arena.data  = malloc(size);
-    arena.size = size;
-    arena.offset =0;
-    return arena;
-}
-
-void* arenaAlloc(Arena* arena, size_t size) {
-    if (arena->offset + size > arena->size) {
-        printf("ERROR - Arena out of space");
-        return NULL;  //Arena is full
-    }
-    void* ptr = arena->data+arena->offset;
-    arena->offset += size;
+static uintptr_t align_forward(uintptr_t ptr, size_t alignment) {
+    uintptr_t modulo = ptr & ((uintptr_t)alignment - 1);
+    if (modulo) ptr += alignment - modulo;
     return ptr;
 }
 
-void freeArena(Arena arena) {
-    free(arena.data);
+
+// -----------------------------------------------------------------------------
+// Core allocation
+//
+// Aligns the current offset, checks there's room, then bumps the offset.
+// Returns NULL (0) if the arena is full — no silent overrun.
+// -----------------------------------------------------------------------------
+static void *arena_alloc_aligned(Arena *a, size_t size, size_t alignment) {
+    if (!is_power_of_two(alignment)) return NULL;
+
+    uintptr_t curr = (uintptr_t)a->base + a->offset;
+    uintptr_t aligned = align_forward(curr, alignment);
+    size_t new_offset = (aligned - (uintptr_t)a->base) + size;
+
+    if (new_offset > a->size) return NULL;  // out of space
+
+    a->committed += size;
+    a->offset = new_offset;
+    return (void *)aligned;
+}
+
+// Public alloc — uses DEFAULT_ALIGNMENT, matches the Allocator interface signature
+void *arena_alloc(size_t size, void *context) {
+    if (!size) return NULL;
+    return arena_alloc_aligned((Arena *)context, size, DEFAULT_ALIGNMENT);
+}
+
+// Free is intentionally a no-op — individual items are not freed from an arena.
+// The whole arena is freed at once via arena_free_all / freeArena.
+void arena_free(size_t size, void *ptr, void *context) {
+    (void)size; (void)ptr; (void)context;
 }
 
 
-TrieNode *createNode(Arena *arena) {
-    //struct TrieNode *node = (struct TrieNode *)malloc(sizeof(struct TrieNode));
-    TrieNode *node = (TrieNode *)arenaAlloc(arena,sizeof(struct TrieNode));
-    node->isEndOfWord = false;
-    node->letter="";
-    if (numNodes==0) node->letter='*';      //numNodes==0 then it's root letter = *
-    for (int i = 0; i < SIZE; i++) {
-        node->children[i] = NULL;
-    }
-    numNodes++;                         //increment number of allocated nodes
-    node->numNode = numNodes;           // tag the node for out convenience
+// -----------------------------------------------------------------------------
+// Lifecycle
+// -----------------------------------------------------------------------------
 
-    return node;
+// arena_init — wrap a caller-provided buffer (stack or heap) in an Arena
+Arena arena_init(void *buffer, size_t size) {
+    return (Arena){ .base = buffer, .size = size };
 }
 
-void insert(Arena *arena, TrieNode *root, const char *key) {
-    TrieNode *current = root;
-    for (int i = 0; i < strlen(key); i++) {
-        int index = key[i] - 'a';
-        if (current->children[index] == NULL) {
-            current->children[index] = createNode(arena);
-            current->children[index]->letter = key[i];
-        }
-        current = current->children[index];
-    }
-    //printf("-%s",key);
-    current->isEndOfWord = true;
+// arena_free_all — "free" everything by resetting the bump pointer to zero.
+// The backing memory is untouched; the arena can be reused immediately.
+void arena_free_all(Arena *a) {
+    a->offset    = 0;
+    a->committed = 0;
 }
 
-void printDawg(TrieNode* root) {
-    // Prints the nodes of the trie
-    if (!root) return;              // if root == NULL (0) then don't bother
-    TrieNode* temp = root;
-    if (temp->isEndOfWord==true) {
-        green();
-        printf("%c->", temp->letter);
-        reset();
-    } else  printf("%c->", temp->letter);
-    for (int i=0; i<SIZE; i++) {
-        if (temp->children[i]) {            // ignore NULL
-            printDawg(temp->children[i]);
-        }
-    }
-}
+// arena_alloc_init — convenience macro to build an Allocator from an Arena
+#define arena_alloc_init(a) (Allocator){ arena_alloc, arena_free, (a) }
 
-void listDawg(TrieNode* root,char *buffer, int wordIndex) {
-    if (!root) return;              // if root == NULL (0) then don't bother
-    for (int i = 0;i<SIZE;i++) {
-        if(root->children[i] != NULL) {
-            buffer[wordIndex] = i + 'a';
-            if(root->children[i]->isEndOfWord == true) {
-                buffer[wordIndex + 1] = '\0';
-                printf("%s\n",buffer);
-            }
-            listDawg(root->children[i], buffer, wordIndex + 1);
-        }
-    }
+
+// -----------------------------------------------------------------------------
+// Usage example
+// -----------------------------------------------------------------------------
+int main(void) {
+    // One malloc for the whole program's scratch memory
+    size_t  capacity = 1024 * 64;           // 64 KB
+    void   *buffer   = malloc(capacity);
+    Arena   arena    = arena_init(buffer, capacity);
+    Allocator al     = arena_alloc_init(&arena);
+
+    // Allocate arrays of different types — all land contiguously in the buffer
+    int    *ints   = make(int,    16, al);
+    double *floats = make(double,  8, al);
+    char   *text   = make(char,   32, al);
+
+    for (int i = 0; i < 16; i++) ints[i]   = i * i;
+    for (int i = 0; i <  8; i++) floats[i] = i * 0.5;
+    for (int i = 0; i < 31; i++) text[i]   = 'a' + (i % 26);
+    text[31] = '\0';
+
+    printf("ints[10]   = %d\n",    ints[10]);
+    printf("floats[4]  = %.1f\n",  floats[4]);
+    printf("text       = %s\n",    text);
+    printf("used       = %zu / %zu bytes\n", arena.offset, arena.size);
+
+    // Free everything in one shot
+    free(buffer);
+    return 0;
 }
