@@ -13,6 +13,9 @@ A generic dynamic array using the stb-style header trick — one allocation hold
 ### [Strings](./Strings/)
 A custom `String` type that stores length alongside the pointer, avoiding null-terminator pitfalls. Includes split, join, concat, search, and views. Wires all three modules (Arena + DynamicArray + String) together in one working example.
 
+### [trees](./trees/)
+Tree data structures. BST (binary search tree): ordered insert, search, delete, min/max, three traversal orders, and a visual printer. Includes a degenerate case demo showing why self-balancing trees exist.
+
 ### [linked_list](./linked_list/)
 Singly and doubly linked lists. Covers push/pop at head and tail, insert after, delete, search, reverse, and bidirectional traversal. Key difference: doubly linked gives O(1) tail operations and O(1) removal if you hold a node pointer.
 
