@@ -13,6 +13,12 @@ A generic dynamic array using the stb-style header trick — one allocation hold
 ### [Strings](./Strings/)
 A custom `String` type that stores length alongside the pointer, avoiding null-terminator pitfalls. Includes split, join, concat, search, and views. Wires all three modules (Arena + DynamicArray + String) together in one working example.
 
+### [linked_list](./linked_list/)
+Singly and doubly linked lists. Covers push/pop at head and tail, insert after, delete, search, reverse, and bidirectional traversal. Key difference: doubly linked gives O(1) tail operations and O(1) removal if you hold a node pointer.
+
+### [hash_table](./hash_table/)
+Two collision strategies side by side: separate chaining (linked list per bucket) and open addressing with linear probing (flat array, tombstone deletion). Both use djb2 string hashing. Good comparison of cache locality vs simplicity trade-offs.
+
 ### [stacks_queues](./stacks_queues/)
 Five classic data structures built on fixed-size arrays: LIFO stack, FIFO queue, deque (double-ended), circular buffer (ring buffer), and priority queue (min-heap). One file per structure, self-contained, no dependencies.
 
