@@ -13,9 +13,12 @@ A generic dynamic array using the stb-style header trick — one allocation hold
 ### [Strings](./Strings/)
 A custom `String` type that stores length alongside the pointer, avoiding null-terminator pitfalls. Includes split, join, concat, search, and views. Wires all three modules (Arena + DynamicArray + String) together in one working example.
 
+### [stacks_queues](./stacks_queues/)
+Five classic data structures built on fixed-size arrays: LIFO stack, FIFO queue, deque (double-ended), circular buffer (ring buffer), and priority queue (min-heap). One file per structure, self-contained, no dependencies.
+
 ### [dawg](./dawg/)
 A Scrabble word finder built on a Trie / DAWG (Directed Acyclic Word Graph) data structure. The arena allocator in this repo was originally developed here.
 
 ---
 
-All three library modules are based on articles by Dylan Falconer at [bytesbeneath.com](https://www.bytesbeneath.com). Bugs found in the original articles are fixed and noted in each folder's README.
+The Arena, DynamicArray, and Strings modules are based on articles by Dylan Falconer at [bytesbeneath.com](https://www.bytesbeneath.com). Bugs found in the original articles are fixed and noted in each folder's README.
